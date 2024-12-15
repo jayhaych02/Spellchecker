@@ -13,19 +13,74 @@
 #include <time.h>
 #include "dictionary.h"
 #include "network.h"
+#include <limits.h>
 
-void sort_highest_prio(LogBuffer *logbuffer){
-    int i,j;
+bool is_highest_priority_ready(ActiveConnections *buffer, pthread_t current_thread) {
+    if (buffer->numItems == 0) return false;
+    
+    int highest_prio = find_highest_priority(buffer);
+    
+    pthread_mutex_lock(&buffer->priority_lock);
+    bool can_process = (buffer->current_priority == -1 || 
+                       buffer->current_priority >= highest_prio);
+    if (can_process) {
+        buffer->current_priority = highest_prio;
+        buffer->processing_thread = current_thread;
+    }
+    pthread_mutex_unlock(&buffer->priority_lock);
+    
+    return can_process;
+}
+
+Client* find_highest_priority_client(ActiveConnections *buffer) {
+    if (buffer->numItems == 0) return NULL;
+    
+    size_t highest_prio_idx = buffer->extract_idx;
+    int highest_prio = buffer->internal_activefd[highest_prio_idx].assigned_priority;
+    
+    for (size_t i = 0; i < buffer->numItems; i++) {
+        size_t curr_idx = (buffer->extract_idx + i) % buffer->capacity;
+        if (buffer->internal_activefd[curr_idx].assigned_priority < highest_prio) {
+            highest_prio = buffer->internal_activefd[curr_idx].assigned_priority;
+            highest_prio_idx = curr_idx;
+        }
+    }
+    
+    return &buffer->internal_activefd[highest_prio_idx];
+}
+
+
+void sort_highest_prio(LogBuffer *logbuffer) {
+    int i, j;
     Client key;
     for (i = 1; i < logbuffer->numItems; i++) {
         key = logbuffer->internal_buffer[i];
         j = i - 1;
-        while(j >= 0 && logbuffer->internal_buffer[j].assigned_priority > key.assigned_priority){
+        while (j >= 0 && logbuffer->internal_buffer[j].assigned_priority > key.assigned_priority) {
             logbuffer->internal_buffer[j + 1] = logbuffer->internal_buffer[j];
             j = j - 1;
         }
         logbuffer->internal_buffer[j+1] = key;
     }
+}
+
+void remove_client_from_buffer(ActiveConnections *buffer, size_t idx) {
+    // Shift remaining clients
+    for (size_t i = idx; i < buffer->numItems - 1; i++) {
+        size_t curr = i % buffer->capacity;
+        size_t next = (i + 1) % buffer->capacity;
+        buffer->internal_activefd[curr] = buffer->internal_activefd[next];
+    }
+    buffer->numItems--;
+}
+
+void cleanup_priority_status(ActiveConnections *buffer, pthread_t thread_id) {
+    pthread_mutex_lock(&buffer->priority_lock);
+    if (buffer->processing_thread == thread_id) {
+        buffer->current_priority = -1;
+        buffer->processing_thread = 0;
+    }
+    pthread_mutex_unlock(&buffer->priority_lock);
 }
 
 
@@ -55,6 +110,8 @@ void logbuff_insert(WorkerThreads* curr, Client client){
     pthread_cond_signal(&curr->logbuff_ref->is_full);
 }
 
+
+
 void* extract_logfile(void *args){
     LogThread *logger = (LogThread*)args;
     while(1){
@@ -76,66 +133,108 @@ void* extract_logfile(void *args){
     return NULL;
 }
 
-void* work_threads(void* args){
-    WorkerThreads *curr_worker = (WorkerThreads*)args;
-    while(1){
-            pthread_mutex_lock(&curr_worker->clientsWaiting->connections_lock);
-            while (curr_worker->clientsWaiting->numItems == 0) {
-                pthread_cond_wait(&curr_worker->clientsWaiting->no_space, &curr_worker->clientsWaiting->connections_lock);
-            }
-            Client extracted = curr_worker->clientsWaiting->internal_activefd[curr_worker->clientsWaiting->extract_idx];
-            printf("EXTRACTED FD = %d\n", extracted.my_fd);
-            curr_worker->clientsWaiting->numItems--;
-            curr_worker->clientsWaiting->extract_idx = (curr_worker->clientsWaiting->extract_idx+ 1 ) % curr_worker->clientsWaiting->capacity;
-            pthread_mutex_unlock(&curr_worker->clientsWaiting->connections_lock);
-            pthread_cond_signal(&curr_worker->clientsWaiting->is_space); 
-            /*
-                Client Servicing Logic
-            */
-            char* message;
-            char client_word[128];
-            int read_size;
-            int client_writing_to = extracted.my_fd;
-            char* correct_spelling = ":CORRECT";
-            char* incorrect_spelling = ":MISSPELLED";
-            message = "Hello Client, this is the work thread designated to you\nNow, type a word and I will spellcheck it: ";
-            if(send(client_writing_to,message,strlen(message),0)==-1){perror("send usg failed in place of write usg!n");};
-            char response_buffer[500];
-
-            char arrival_time[100], time_completed[100], entire_time[300];
-            struct timeval times;
-            struct tm *start_info, *end_info;
-            gettimeofday(&times, NULL);
-            start_info = localtime(&times.tv_sec);
-            strftime(arrival_time, 80, "%Y-%m-%d %H:%M:%S", start_info);
-            snprintf(entire_time,300,"%s.%ld\n",arrival_time, times.tv_usec / 1000);
-            strcpy(extracted.time_acceptance,entire_time);
-
-            while( (read_size = recv( client_writing_to, client_word, sizeof(client_word), 0)) > 0){
-                if(read_size == 0){puts("Client disconnected");break;}
-                client_word[read_size] = '\0';
-                //printf("WORD ARRIVAL TIME = %s\n",entire_time);
-                //printf("Client %d's WORD WAS: %s\n",extracted.my_fd-3,client_word);
-                if(word_in_dict( client_word , curr_worker->config_ref->dictionary )){
-                    snprintf(response_buffer, sizeof(response_buffer), "%s%s", client_word, correct_spelling);
-                    strcpy(extracted.socket_response_value, response_buffer);//client field
-                    write(client_writing_to, response_buffer, strlen(response_buffer));
-                }else{
-                    snprintf(response_buffer, sizeof(response_buffer), "%s%s", client_word, incorrect_spelling);
-                    strcpy(extracted.socket_response_value, response_buffer);//client field
-                    write(client_writing_to, response_buffer, strlen(response_buffer));
-                }
-                gettimeofday(&times, NULL);
-                end_info = localtime(&times.tv_sec);
-                strftime(time_completed, 80, "%Y-%m-%d %H:%M:%S", end_info);
-                snprintf(entire_time,300,"%s.%ld\n",time_completed, times.tv_usec / 1000);
-                strcpy(extracted.time_spellcheck_completed,entire_time);//client field
-                strcpy(extracted.word,client_word);//client field
-                logbuff_insert(curr_worker,extracted);
-            }    
+int find_highest_priority(ActiveConnections *buffer) {
+    int highest_prio = INT_MAX;
+    for (size_t i = 0; i < buffer->numItems; i++) {
+        size_t idx = (buffer->extract_idx + i) % buffer->capacity;
+        if (buffer->internal_activefd[idx].assigned_priority < highest_prio) {
+            highest_prio = buffer->internal_activefd[idx].assigned_priority;
+        }
     }
-    return NULL; 
+    return highest_prio;
 }
+
+void* work_threads(void* args) {
+    WorkerThreads *curr_worker = (WorkerThreads*)args;
+    while(1) {
+       pthread_mutex_lock(&curr_worker->clientsWaiting->connections_lock);
+        
+        while (curr_worker->clientsWaiting->numItems == 0 || 
+               (curr_worker->config_ref->sched_type == 2 && 
+                !is_highest_priority_ready(curr_worker->clientsWaiting, curr_worker->thread_id))) {
+            pthread_cond_wait(&curr_worker->clientsWaiting->no_space, 
+                            &curr_worker->clientsWaiting->connections_lock);
+        }
+        
+        Client* highest_prio_client = NULL;
+        if (curr_worker->config_ref->sched_type == 2) {
+            highest_prio_client = find_highest_priority_client(curr_worker->clientsWaiting);
+        } else {
+            highest_prio_client = &curr_worker->clientsWaiting->internal_activefd[curr_worker->clientsWaiting->extract_idx];
+        }
+
+        if (!highest_prio_client) {
+            pthread_mutex_unlock(&curr_worker->clientsWaiting->connections_lock);
+            continue;
+        }
+        
+        Client extracted = *highest_prio_client;
+        remove_client_from_buffer(curr_worker->clientsWaiting, highest_prio_client - curr_worker->clientsWaiting->internal_activefd);
+        
+        pthread_mutex_unlock(&curr_worker->clientsWaiting->connections_lock);
+        pthread_cond_signal(&curr_worker->clientsWaiting->is_space);
+        
+        // SECTION 2: Service the client
+        char* message;
+        char client_word[128];
+        int read_size;
+        int client_writing_to = extracted.my_fd;
+        char* correct_spelling = ":CORRECT";
+        char* incorrect_spelling = ":MISSPELLED";
+        
+        message = "Hello Client, this is the work thread designated to you\n"
+                 "Now, type a word and I will spellcheck it: ";
+        
+        if(send(client_writing_to, message, strlen(message), 0) == -1) {
+            perror("send failed!");
+            continue;
+        }
+        
+        char response_buffer[500];
+        
+        // Record arrival time
+        struct timeval times;
+        struct tm *start_info, *end_info;
+        gettimeofday(&times, NULL);
+        start_info = localtime(&times.tv_sec);
+        char arrival_time[100], time_completed[100], entire_time[300];
+        strftime(arrival_time, 80, "%Y-%m-%d %H:%M:%S", start_info);
+        snprintf(entire_time, 300, "%s.%ld\n", arrival_time, times.tv_usec / 1000);
+        strcpy(extracted.time_acceptance, entire_time);
+        
+        // SECTION 3: Process words and log results
+        while((read_size = recv(client_writing_to, client_word, sizeof(client_word), 0)) > 0) {
+            client_word[read_size] = '\0';
+            
+            if(word_in_dict(client_word, curr_worker->config_ref->dictionary)) {
+                snprintf(response_buffer, sizeof(response_buffer), "%s%s", 
+                        client_word, correct_spelling);
+            } else {
+                snprintf(response_buffer, sizeof(response_buffer), "%s%s", 
+                        client_word, incorrect_spelling);
+            }
+            
+            strcpy(extracted.socket_response_value, response_buffer);
+            write(client_writing_to, response_buffer, strlen(response_buffer));
+            
+            // Record completion time
+            gettimeofday(&times, NULL);
+            end_info = localtime(&times.tv_sec);
+            strftime(time_completed, 80, "%Y-%m-%d %H:%M:%S", end_info);
+            snprintf(entire_time, 300, "%s.%ld\n", time_completed, times.tv_usec / 1000);
+            strcpy(extracted.time_spellcheck_completed, entire_time);
+            strcpy(extracted.word, client_word);
+            
+            if (curr_worker->config_ref->sched_type == 2) {
+                cleanup_priority_status(curr_worker->clientsWaiting, curr_worker->thread_id);
+            }
+
+            logbuff_insert(curr_worker, extracted);
+        }
+    }
+    return NULL;
+}
+
 
 void insert(ActiveConnections *clientbuffer_ref, Client* client){
     pthread_mutex_lock(&clientbuffer_ref->connections_lock);
@@ -165,7 +264,7 @@ void handle_connections(int listening_fd, ActiveConnections *clientbuffer_ref, S
 		if(!connfdp){perror("error malloc fd for new client");}
         *connfdp = accept(listening_fd, (struct sockaddr*)&client, (socklen_t*)&c);
         if(*connfdp < 0){printf("client failed to be accepted!\n");exit(EXIT_FAILURE);}
-        int randomprio = (rand()%10)+1;
+        int randomprio = (rand()%25)+1; /*  PRIOS from 1-25  */
         gettimeofday(&start, NULL);
         start_info = localtime(&start.tv_sec);
         strftime(time_accepted, 80, "%Y-%m-%d %H:%M:%S", start_info);
@@ -233,6 +332,8 @@ int main(int argc, char* argv[]) {
     if(!clientBuffer){perror("mallocing connection buffer");}
     clientBuffer->capacity = config->buffer_capacity;
     clientBuffer->numItems = 0;
+    clientBuffer->current_priority = -1;
+    clientBuffer->processing_thread = 0;
     clientBuffer->curr_idx = 0;
     clientBuffer->extract_idx = 0;
     clientBuffer->internal_activefd = malloc(sizeof(Client) * clientBuffer->capacity);
@@ -256,6 +357,7 @@ int main(int argc, char* argv[]) {
     pthread_cond_init(&log_buff->is_full,NULL);
     pthread_cond_init(&log_buff->is_empty,NULL);
     pthread_mutex_init(&clientBuffer->connections_lock,NULL);
+    pthread_mutex_init(&clientBuffer->priority_lock, NULL);
     pthread_cond_init(&clientBuffer->no_space,NULL);
     pthread_cond_init(&clientBuffer->is_space,NULL);
 
