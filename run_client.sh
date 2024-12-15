@@ -3,7 +3,7 @@
 # Default values
 PORT=8888
 IP="127.0.0.1"
-MODE="single"  # single or multi
+MODE="multi"  # single or multi. type single to run single
 
 # Parse command line arguments
 while getopts "p:i:m:" opt; do

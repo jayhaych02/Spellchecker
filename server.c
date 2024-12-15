@@ -13,6 +13,24 @@
 #include <time.h>
 #include "dictionary.h"
 #include "network.h"
+#include <limits.h>
+
+bool is_highest_priority_ready(ActiveConnections *buffer, pthread_t current_thread) {
+    if (buffer->numItems == 0) return false;
+    
+    int highest_prio = find_highest_priority(buffer);
+    
+    pthread_mutex_lock(&buffer->priority_lock);
+    bool can_process = (buffer->current_priority == -1 || 
+                       buffer->current_priority >= highest_prio);
+    if (can_process) {
+        buffer->current_priority = highest_prio;
+        buffer->processing_thread = current_thread;
+    }
+    pthread_mutex_unlock(&buffer->priority_lock);
+    
+    return can_process;
+}
 
 Client* find_highest_priority_client(ActiveConnections *buffer) {
     if (buffer->numItems == 0) return NULL;
@@ -55,6 +73,16 @@ void remove_client_from_buffer(ActiveConnections *buffer, size_t idx) {
     }
     buffer->numItems--;
 }
+
+void cleanup_priority_status(ActiveConnections *buffer, pthread_t thread_id) {
+    pthread_mutex_lock(&buffer->priority_lock);
+    if (buffer->processing_thread == thread_id) {
+        buffer->current_priority = -1;
+        buffer->processing_thread = 0;
+    }
+    pthread_mutex_unlock(&buffer->priority_lock);
+}
+
 
 void write_to_logfile(LogThread *logger_thread, Client client){
     FILE* fp = fopen(logger_thread->logFile,"a");
@@ -105,32 +133,48 @@ void* extract_logfile(void *args){
     return NULL;
 }
 
+int find_highest_priority(ActiveConnections *buffer) {
+    int highest_prio = INT_MAX;
+    for (size_t i = 0; i < buffer->numItems; i++) {
+        size_t idx = (buffer->extract_idx + i) % buffer->capacity;
+        if (buffer->internal_activefd[idx].assigned_priority < highest_prio) {
+            highest_prio = buffer->internal_activefd[idx].assigned_priority;
+        }
+    }
+    return highest_prio;
+}
 
 void* work_threads(void* args) {
     WorkerThreads *curr_worker = (WorkerThreads*)args;
     while(1) {
-        pthread_mutex_lock(&curr_worker->clientsWaiting->connections_lock);
+       pthread_mutex_lock(&curr_worker->clientsWaiting->connections_lock);
         
-        while (curr_worker->clientsWaiting->numItems == 0) {
+        while (curr_worker->clientsWaiting->numItems == 0 || 
+               (curr_worker->config_ref->sched_type == 2 && 
+                !is_highest_priority_ready(curr_worker->clientsWaiting, curr_worker->thread_id))) {
             pthread_cond_wait(&curr_worker->clientsWaiting->no_space, 
                             &curr_worker->clientsWaiting->connections_lock);
         }
         
-        Client* highest_prio_client = find_highest_priority_client(curr_worker->clientsWaiting);
+        Client* highest_prio_client = NULL;
+        if (curr_worker->config_ref->sched_type == 2) {
+            highest_prio_client = find_highest_priority_client(curr_worker->clientsWaiting);
+        } else {
+            highest_prio_client = &curr_worker->clientsWaiting->internal_activefd[curr_worker->clientsWaiting->extract_idx];
+        }
+
         if (!highest_prio_client) {
             pthread_mutex_unlock(&curr_worker->clientsWaiting->connections_lock);
             continue;
         }
         
-        // Each thread makes their own copy of their assigned client's data
         Client extracted = *highest_prio_client;
-        
         remove_client_from_buffer(curr_worker->clientsWaiting, highest_prio_client - curr_worker->clientsWaiting->internal_activefd);
         
         pthread_mutex_unlock(&curr_worker->clientsWaiting->connections_lock);
         pthread_cond_signal(&curr_worker->clientsWaiting->is_space);
         
-        // Client service logic
+        // SECTION 2: Service the client
         char* message;
         char client_word[128];
         int read_size;
@@ -158,6 +202,7 @@ void* work_threads(void* args) {
         snprintf(entire_time, 300, "%s.%ld\n", arrival_time, times.tv_usec / 1000);
         strcpy(extracted.time_acceptance, entire_time);
         
+        // SECTION 3: Process words and log results
         while((read_size = recv(client_writing_to, client_word, sizeof(client_word), 0)) > 0) {
             client_word[read_size] = '\0';
             
@@ -180,6 +225,10 @@ void* work_threads(void* args) {
             strcpy(extracted.time_spellcheck_completed, entire_time);
             strcpy(extracted.word, client_word);
             
+            if (curr_worker->config_ref->sched_type == 2) {
+                cleanup_priority_status(curr_worker->clientsWaiting, curr_worker->thread_id);
+            }
+
             logbuff_insert(curr_worker, extracted);
         }
     }
@@ -215,7 +264,7 @@ void handle_connections(int listening_fd, ActiveConnections *clientbuffer_ref, S
 		if(!connfdp){perror("error malloc fd for new client");}
         *connfdp = accept(listening_fd, (struct sockaddr*)&client, (socklen_t*)&c);
         if(*connfdp < 0){printf("client failed to be accepted!\n");exit(EXIT_FAILURE);}
-        int randomprio = (rand()%10)+1;
+        int randomprio = (rand()%25)+1; /*  PRIOS from 1-25  */
         gettimeofday(&start, NULL);
         start_info = localtime(&start.tv_sec);
         strftime(time_accepted, 80, "%Y-%m-%d %H:%M:%S", start_info);
@@ -283,6 +332,8 @@ int main(int argc, char* argv[]) {
     if(!clientBuffer){perror("mallocing connection buffer");}
     clientBuffer->capacity = config->buffer_capacity;
     clientBuffer->numItems = 0;
+    clientBuffer->current_priority = -1;
+    clientBuffer->processing_thread = 0;
     clientBuffer->curr_idx = 0;
     clientBuffer->extract_idx = 0;
     clientBuffer->internal_activefd = malloc(sizeof(Client) * clientBuffer->capacity);
@@ -306,6 +357,7 @@ int main(int argc, char* argv[]) {
     pthread_cond_init(&log_buff->is_full,NULL);
     pthread_cond_init(&log_buff->is_empty,NULL);
     pthread_mutex_init(&clientBuffer->connections_lock,NULL);
+    pthread_mutex_init(&clientBuffer->priority_lock, NULL);
     pthread_cond_init(&clientBuffer->no_space,NULL);
     pthread_cond_init(&clientBuffer->is_space,NULL);
 
