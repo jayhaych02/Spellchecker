@@ -21,15 +21,19 @@ case $MODE in
     ./client.out  # Single client
     ;;
   "multi")
-    # Run multiple clients in background
-    ./client.out &
-    ./client.out &
-    ./client.out &
-    ./client.out &
-    ./client.out &
+    # Run 100 clients in background
+    for i in {1..100}
+    do
+      ./client.out &
+      echo "Started client $i"
+    done
     ;;
   *)
     echo "Invalid mode. Use 'single' or 'multi'"
     exit 1
     ;;
 esac
+
+# Wait for all background processes to finish
+wait
+echo "All clients completed"

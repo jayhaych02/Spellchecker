@@ -1,0 +1,96 @@
+|FD:4|Word:garden|Status:garden:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:16.820
+
+
+|FD:4|Word:Rabbit|Status:Rabbit:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:17.820
+
+
+|FD:4|Word:world|Status:world:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:18.820
+
+
+|FD:4|Word:Biscuit|Status:Biscuit:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:19.821
+
+
+|FD:4|Word:test|Status:test:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:20.821
+
+
+|FD:4|Word:Boots|Status:Boots:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:21.823
+
+
+|FD:4|Word:whale|Status:whale:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:22.824
+
+
+|FD:4|Word:window|Status:window:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.819
+|Completion:2025-02-27 20:06:23.825
+
+
+|FD:4|Word:yak|Status:yak:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.819
+|Completion:2025-02-27 20:06:24.825
+
+
+|FD:4|Word:Basketball|Status:Basketball:CORRECT|Priority:9|Arrival:2025-02-27 20:06:16.819
+|Completion:2025-02-27 20:06:25.826
+
+
+|FD:4|Word:Norway|Status:Norway:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:26.826
+
+
+|FD:4|Word:Penguin|Status:Penguin:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.819
+|Completion:2025-02-27 20:06:27.827
+
+
+|FD:4|Word:zoo|Status:zoo:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:28.827
+
+
+|FD:4|Word:Telephone|Status:Telephone:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:29.828
+
+
+|FD:4|Word:Quartet|Status:Quartet:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:30.828
+
+
+|FD:4|Word:Xylophone|Status:Xylophone:MISSPELLED|Priority:9|Arrival:2025-02-27 20:06:16.818
+|Completion:2025-02-27 20:06:31.829
+
+
+|FD:4|Word:garden|Status:garden:MISSPELLED|Priority:9|Arrival:2025-02-27 20:31:39.884
+|Completion:2025-02-27 20:31:39.885
+
+
+|FD:5|Word:garden|Status:garden:MISSPELLED|Priority:12|Arrival:2025-02-27 20:31:39.885
+|Completion:2025-02-27 20:31:39.885
+
+
+|FD:4|Word:Rabbit|Status:Rabbit:MISSPELLED|Priority:9|Arrival:2025-02-27 20:31:39.884
+|Completion:2025-02-27 20:31:40.886
+
+
+|FD:5|Word:Rabbit|Status:Rabbit:MISSPELLED|Priority:12|Arrival:2025-02-27 20:31:39.885
+|Completion:2025-02-27 20:31:40.886
+
+
+|FD:5|Word:world|Status:world:MISSPELLED|Priority:12|Arrival:2025-02-27 20:31:39.885
+|Completion:2025-02-27 20:31:41.888
+
+
+|FD:4|Word:world|Status:world:MISSPELLED|Priority:9|Arrival:2025-02-27 20:31:39.884
+|Completion:2025-02-27 20:31:41.888
+
+
+|FD:5|Word:Biscuit|Status:Biscuit:MISSPELLED|Priority:12|Arrival:2025-02-27 20:31:39.885
+|Completion:2025-02-27 20:31:42.889
+
+
+|FD:4|Word:Biscuit|Status:Biscuit:MISSPELLED|Priority:9|Arrival:2025-02-27 20:31:39.884
+|Completion:2025-02-27 20:31:42.889
+
+

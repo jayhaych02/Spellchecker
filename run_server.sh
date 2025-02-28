@@ -6,7 +6,7 @@ THREADS=5
 BUFFER=10
 PRIO=1
 DICT="dictAM.txt"
-SCHED=2  # Default FIFO scheduling = 1. prio = 2
+SCHED=1  # Default FIFO scheduling = 1. prio = 2
 
 # Parse command line arguments
 while getopts "p:w:b:e:d:s:" opt; do
